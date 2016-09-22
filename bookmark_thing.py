@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import io
 import json
 import requests
@@ -8,6 +11,10 @@ import codecs
 import logging
 from stop_words import get_stop_words
 from nltk import word_tokenize
+from nltk.stem.snowball import SnowballStemmer
+from string import punctuation
+import re
+
 
 def get_bookmark_file():
     __path = 'C:\\Users\\Hugo Alvarado\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Bookmarks'
@@ -15,7 +22,9 @@ def get_bookmark_file():
 
 
 
-
+'''
+Traverse the chrome bookmark data and return the leafs with urls
+'''
 def get_bookmark_children(node, url_list):
     if node is None:
         return []
@@ -36,9 +45,66 @@ def get_bookmark_children(node, url_list):
         node['name'] = node['name']
         return node
 
+'''
+Remove punctuation, convert to lower case, remove start and end spaces and tabs
+'''
+def clean_string(a_string):
+    cleaned_string = a_string.lower().strip()
+
+    for p in list(punctuation):
+        cleaned_string = cleaned_string.replace(p,'')
+
+    return cleaned_string
 
 
+'''
+Parse the site content with Beautiful Soup, avoiding stop words and covert each work to it's
+base stemmed form
+'''
+def tokenize_content(content):
+    soup = BeautifulSoup(content, 'html.parser')
+
+    #logging.debug('title %s' % soup.title)
+
+    # count words skipping stop words
+    site_words = []
+
+    # tags = soup.find_all(['p', 'a', 'h1', 'h2', 'h3', 'h4'])
+    tags = soup.find_all(['p','title'])
+
+    for tag in tags:
+        # print(tag)
+        # print(tag.string)
+        if None is tag.string:
+            continue
+
+        cleaned_string = clean_string(tag.string)
+
+        for word in word_tokenize(cleaned_string):
+            if valid_word(word):
+                site_words.append(word)
+
+    stemmed_site_words = [stemmer.stem(t) for t in site_words]
+    return stemmed_site_words
+
+
+'''
+Return true if the word token is not a stop word, not a number and longer than 2 characters
+'''
+def valid_word(word):
+    return word not in stop_words and len(word) > 2 and None is not re.search('[a-zA-Z]', word)
+
+
+'''
+Main entry point
+'''
 if __name__ == '__main__':
+
+    stemmer = SnowballStemmer("english")
+
+    stop_words = get_stop_words('en')
+    stop_words.append(None)
+    stop_words.extend(['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'])
 
     logging.basicConfig(filename='bookmark.log', filemode='w', level=logging.DEBUG, format='%(levelname)s:%(message)s')
 
@@ -57,60 +123,48 @@ if __name__ == '__main__':
         if 'sync_transaction_version' != key:
             get_bookmark_children( value, bookmarks_list)
 
-    logging.info( '%s %s' %('Total bookmarks found: ',len(bookmarks_list)))
+    logging.info('Total bookmarks found: %s' % len(bookmarks_list))
 
     # TODO remove duplicates
 
     bookmarks_list = [{'url':'http://www.sitepoint.com/author/agervasio/'},
                       {'url':'http://docs.python-guide.org/en/latest/dev/virtualenvs/'}]
 
-    stop_words = get_stop_words('en')
-    stop_words.append(None)
+
 
     logging.debug('Using stopwords:')
     logging.debug(stop_words)
 
+    most_common_words = []
+
     for bookmark in bookmarks_list:
         #print(bookmark.keys())
 
-        logging.info(bookmark['url'])
+        logging.info("Checking %s" % (bookmark['url']))
+
         try:
             page = requests.get(bookmark['url'])
         except:
-            logging.exception(bookmark['url'], 'not found')
+            logging.exception('%s not found' % bookmark['url'])
             continue
 
         if 404 == page.status_code:
-            print('not found', bookmark['url'])
+            logging.info("Not found %s" % bookmark['url'])
             bookmark['status'] = 'not found'
         else:
-            print('found:', bookmark['url'])
+            logging.info("Found %s" % bookmark['url'])
             bookmark['status'] = 'found'
 
-            soup = BeautifulSoup(page.content, 'html.parser')
-
-            logging.debug('title:',soup.title)
-
-            # count words skipping stop words
-            site_words = []
-
-            #tags = soup.find_all(['p', 'a', 'h1', 'h2', 'h3', 'h4'])
-            tags = soup.find_all(['p'])
-
-            for tag in tags:
-                #print(tag)
-                #print(tag.string)
-                if None is tag.string:
-                    continue
-
-                for word in word_tokenize(tag.string.lower()):
-                    if word not in stop_words and len(word) > 2:
-                        site_words.append(word.strip())
+            site_words = tokenize_content(page.content)
 
             words_by_count = Counter(site_words).most_common(20)
 
+
+            bookmark['most_common'] = words_by_count
+
             for word in words_by_count:
-                print(word)
+                logging.info(word)
+                most_common_words.append(word[0])
 
-
+    #print(bookmarks_list)
 
