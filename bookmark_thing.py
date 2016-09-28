@@ -14,6 +14,9 @@ from nltk import word_tokenize
 from nltk.stem.snowball import SnowballStemmer
 from string import punctuation
 import re
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.cluster import KMeans
 
 
 def get_bookmark_file():
@@ -61,7 +64,7 @@ def clean_string(a_string):
 Parse the site content with Beautiful Soup, avoiding stop words and covert each work to it's
 base stemmed form
 '''
-def tokenize_content(content):
+def tokenize_html_content(content):
     soup = BeautifulSoup(content, 'html.parser')
 
     #logging.debug('title %s' % soup.title)
@@ -99,6 +102,8 @@ def valid_word(word):
 Main entry point
 '''
 if __name__ == '__main__':
+
+    html_documents = []
 
     stemmer = SnowballStemmer("english")
 
@@ -155,7 +160,9 @@ if __name__ == '__main__':
             logging.info("Found %s" % bookmark['url'])
             bookmark['status'] = 'found'
 
-            site_words = tokenize_content(page.content)
+            html_documents.append(page.content)
+
+            site_words = tokenize_html_content(page.content)
 
             words_by_count = Counter(site_words).most_common(20)
 
@@ -167,4 +174,33 @@ if __name__ == '__main__':
                 most_common_words.append(word[0])
 
     #print(bookmarks_list)
+
+
+    # document term matrix / term frequency matrix (dtm)
+    # define vectorizer parameters
+    tfidf_vectorizer = TfidfVectorizer(max_df=0.8,
+                                           max_features=200000,
+                                           min_df=0.2,
+                                           stop_words='english',
+                                           use_idf=True,
+                                           ngram_range=(1,3),
+                                           tokenizer=tokenize_html_content
+                                           )
+
+    tfidf_matrix = tfidf_vectorizer.fit_transform(html_documents)
+
+    terms = tfidf_vectorizer.get_feature_names()
+
+    dist = 1 - cosine_similarity(tfidf_matrix)
+
+    km_cluster = KMeans(n_clusters=1)
+
+    km_cluster.fit(tfidf_matrix)
+
+    clusters = km_cluster.labels_.tolist()
+
+    #next up, create pandas dataframe and visualizations
+
+
+
 
