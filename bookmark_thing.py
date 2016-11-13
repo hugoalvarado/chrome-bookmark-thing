@@ -52,7 +52,7 @@ def get_bookmark_children(node, url_list):
         return node
 
 '''
-Remove punctuation, convert to lower case, remove start and end spaces and tabs nad encode to utf-8
+Remove punctuation, convert to lower case, remove start and end spaces and tabs and encode to utf-8
 '''
 def clean_string(a_string):
     cleaned_string = a_string.lower().strip()
@@ -75,8 +75,10 @@ def tokenize_html_content(content):
     # count words skipping stop words
     site_words = []
 
-    # tags = soup.find_all(['p', 'a', 'h1', 'h2', 'h3', 'h4'])
+    #tags = soup.find_all(['p', 'a', 'h1', 'h2', 'h3', 'h4'])
     tags = soup.find_all(['p','title','h1', 'h2', 'h3', 'h4','pre','a'])
+    
+    #tags = soup.find_all(['title'])
 
 
     for tag in tags:
@@ -110,6 +112,7 @@ def valid_word(word):
 
 '''
 Main entry point
+http://discuss.yhat.com/t/getting-the-current-script-path---file---unavaialble/319
 '''
 if __name__ == '__main__':
 
@@ -117,15 +120,14 @@ if __name__ == '__main__':
     urls = []
 
     stemmer = SnowballStemmer("english")
+    
+    
 
     stop_words = get_stop_words('en')
     stop_words.append(None)
     stop_words.extend(['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'])
 
-    #logging.basicConfig(filename='bookmark.log',
-    #                    filemode='w',
-    #                    level=logging.DEBUG,
-    #                    format='%(levelname)s:%(message)s')
+
 
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
@@ -135,13 +137,18 @@ if __name__ == '__main__':
     # or %(asctime)s %(name)-12s %(levelname)-8s %(message)s
     root_logger.addHandler(handler)
 
-    root_logger.info('Starting bookmark analysis.')
+    root_logger.info('************************************************')
+    root_logger.info('************************************************')
+    root_logger.info('Starting bookmark analysis!')
+    root_logger.info('************************************************')
+    root_logger.info('************************************************')
+    
 
     #avoid encoding warnings
-    if sys.stdout.encoding != 'utf8':
-        sys.stdout = codecs.getwriter('utf8')(sys.stdout.buffer, 'strict')
-    if sys.stderr.encoding != 'utf8':
-        sys.stderr = codecs.getwriter('utf8')(sys.stderr.buffer, 'strict')
+    #if sys.stdout.encoding != 'utf8':
+    #    sys.stdout = codecs.getwriter('utf8')(sys.stdout.buffer, 'strict')
+    #if sys.stderr.encoding != 'utf8':
+    #    sys.stderr = codecs.getwriter('utf8')(sys.stderr.buffer, 'strict')
 
     bookmark_data = json.load(get_bookmark_file())
 
@@ -211,36 +218,59 @@ if __name__ == '__main__':
         pickle.dump(html_documents, open( "pickle_html_documents.p", "wb" ))
         pickle.dump(urls, open("pickle_urls.p", "wb"))
 
-    #html_documents = html_documents[0:20]
-    #urls = urls[0:20]
+
+    total_clusters = 10
+    html_documents = html_documents[0:200]
+    urls = urls[0:200]
+    
+    
 
 
     # document term matrix / term frequency matrix (dtm)
     # define vectorizer parameters
-    tfidf_vectorizer = TfidfVectorizer(max_df=0.8,
-                                       max_features=200000,
-                                       min_df=0.2,
-                                       stop_words='english',
-                                       use_idf=True,
-                                       ngram_range=(1,3),
+    tfidf_vectorizer = TfidfVectorizer(#max_df=0.8,
+                                       #max_features=200000,
+                                       ##min_df=0.2,
+                                       #stop_words='english',
+                                       #use_idf=True,
+                                       #ngram_range=(1,3),
                                        tokenizer=tokenize_html_content
                                        )
 
+
+    #term frequency-inverse document frequency
     tfidf_matrix = tfidf_vectorizer.fit_transform(html_documents)
 
     terms = tfidf_vectorizer.get_feature_names()
+    
+    
+    root_logger.debug('Matrix shape:')
+    root_logger.debug(tfidf_matrix.shape)
+    
+    
+    root_logger.debug('Matrix terms/features:')
+    root_logger.debug(terms)
+    
+    #root_logger.debug('Global term weighting of the features:')
+    #root_logger.debug(tfidf_vectorizer.idf_)
+    
+    
 
+    #math magic
     dist = 1 - cosine_similarity(tfidf_matrix)
+
 
 
 
     # k-means
 
-    km_cluster = KMeans(n_clusters=10)
+    # use random_state to initialize the centers with a fixed seed (to get the same results/repeatability)
+    km_cluster = KMeans(n_clusters=total_clusters, random_state=1)
 
     km_cluster.fit(tfidf_matrix)
 
     clusters = km_cluster.labels_.tolist()
+
 
 
 
@@ -250,10 +280,22 @@ if __name__ == '__main__':
 
     frame = pd.DataFrame(bookmarks, index = [clusters], columns = ['url', 'cluster'])
 
-    print(frame['cluster'].value_counts())
+    #print(frame['cluster'].value_counts())
 
     #grouped = frame['????????']
 
+    grouped = frame['url'].groupby(frame['cluster'])
+
+
+    root_logger.debug('Urls:')
+    root_logger.debug(urls)
+
+    root_logger.debug('Clusters:')
+    root_logger.debug(clusters)
+
+
+
+    # Multidimensional scaling...?
     from sklearn.manifold import MDS
 
     MDS()
@@ -261,12 +303,17 @@ if __name__ == '__main__':
 
     pos = mds.fit_transform(dist)  # shape (n_components, n_samples)
 
-    print(type(pos))
+
     xs, ys = pos[:, 0], pos[:, 1]
 
-    print(pos)
 
     #visualize clusters
+    
+    cluster_colors = {0: '#1b9e77', 1: '#d95f02', 2: '#7570b3', 3: '#e7298a', 4: '#7f869a',
+            5: '#d1af28', 6: '#335c4e', 7: '#d7005e', 8: '#f7c120', 9: '#783cd4'
+    }
+
+    cluster_names = grouped.all()
 
     df = pd.DataFrame(dict(x=xs, y=ys, label=clusters, url=urls))
     groups = df.groupby('label')
@@ -274,12 +321,11 @@ if __name__ == '__main__':
     fig, ax = plt.subplots(figsize=(17, 9))  # set size
     ax.margins(0.05)  # Optional, just adds 5% padding to the autoscaling
 
-    print(groups)
-
     for name, group in groups:
-        print(name)
+
         ax.plot(group.x, group.y, marker='o', linestyle='', ms=12,
-                #label=cluster_names[name], color=cluster_colors[name],
+                label=name,
+                color=cluster_colors[name],
                 mec='none')
         ax.set_aspect('auto')
         ax.tick_params( \
@@ -301,9 +347,7 @@ if __name__ == '__main__':
     #for i in range(len(df)):
     #   ax.text(df.ix[i]['x'], df.ix[i]['y'], df.ix[i]['url'], size=8)
 
+
     plt.show()  # show the plot
-
-
-
 
 
