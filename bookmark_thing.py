@@ -5,6 +5,7 @@ import io
 import os
 import json
 import requests
+import random
 from bs4 import BeautifulSoup
 from collections import Counter
 import sys
@@ -21,6 +22,7 @@ from sklearn.cluster import KMeans
 import pandas as pd
 import pickle
 import matplotlib.pyplot as plt
+from collections import Counter
 
 def get_bookmark_file():
     __path = os.path.join(os.getenv('LOCALAPPDATA') , 'Google\\Chrome\\User Data\\Default\\Bookmarks')
@@ -75,10 +77,8 @@ def tokenize_html_content(content):
     # count words skipping stop words
     site_words = []
 
-    #tags = soup.find_all(['p', 'a', 'h1', 'h2', 'h3', 'h4'])
-    tags = soup.find_all(['p','title','h1', 'h2', 'h3', 'h4','pre','a'])
-    
-    #tags = soup.find_all(['title'])
+    tags = soup.find_all(['p','title','h1', 'h2', 'h3', 'h4'])
+    #tags = soup.find_all(['title', 'p'])
 
 
     for tag in tags:
@@ -96,7 +96,7 @@ def tokenize_html_content(content):
                 site_words.append(word)
 
 
-    stemmed_site_words = [stemmer.stem(t) for t in site_words]
+    stemmed_site_words = [stemmer.stem(t) for t in site_words if valid_word(stemmer.stem(t))]
 
     #logging.debug(stemmed_site_words)
 
@@ -107,7 +107,7 @@ def tokenize_html_content(content):
 Return true if the word token is not a stop word, not a number and longer than 2 characters
 '''
 def valid_word(word):
-    return word not in stop_words and len(word) > 2 and None is not re.search('[a-zA-Z]', word)
+    return word not in stop_words and len(word) > 2 and None is not re.search('[a-zA-Z]', word) and len(word) < 20
 
 
 '''
@@ -202,16 +202,6 @@ if __name__ == '__main__':
                 html_documents.append(page.content.decode('utf-8', "ignore"))
                 urls.append(bookmark['url'])
 
-                #site_words = tokenize_html_content(page.content)
-
-                #words_by_count = Counter(site_words).most_common(20)
-
-
-                #bookmark['most_common'] = words_by_count
-
-                #for word in words_by_count:
-                #    root_logger.info(word)
-                #    most_common_words.append(word[0])
 
         #print(bookmarks_list)
 
@@ -219,11 +209,39 @@ if __name__ == '__main__':
         pickle.dump(urls, open("pickle_urls.p", "wb"))
 
 
-    total_clusters = 10
-    html_documents = html_documents[0:200]
-    urls = urls[0:200]
-    
-    
+    root_logger.info('%s total bookmarks' % len(html_documents))
+    random.seed(1)
+
+    total_clusters = 20
+    sample_size = 300
+
+    cluster_colors = {
+        0: '#1b9e77', 1: '#d95f02', 2: '#7570b3', 3: '#e7298a', 4: '#7f869a',
+        5: '#d1af28', 6: '#335c4e', 7: '#d7005e', 8: '#f7c120', 9: '#783cd4',
+        10: '#1ABD70', 11: '#5456BF', 12: '#8E9D9B', 13: '#E47C32', 14: '#0EA47F',
+        15: '#03DFF7', 16: '#7B4445', 17: '#C676D9', 18: '#BE07D4', 19: '#099B8E'
+    }
+
+    random_indexes = random.sample(range(len(html_documents)), sample_size)
+
+    html_documents = [html_documents[i] for i in random_indexes]
+    urls = [urls[i] for i in random_indexes]
+    document_common_words = []
+
+    root_logger.info('%s total bookmarks to plot' % len(html_documents))
+
+
+    # get the common words in each doc
+    for i, doc in enumerate(html_documents):
+        site_words = tokenize_html_content(doc)
+        words_by_count = Counter(site_words).most_common(5)
+
+        document_common_words.append(words_by_count)
+
+        #root_logger.info(urls[i])
+
+        #for word in words_by_count:
+            #root_logger.info(word)
 
 
     # document term matrix / term frequency matrix (dtm)
@@ -231,7 +249,7 @@ if __name__ == '__main__':
     tfidf_vectorizer = TfidfVectorizer(#max_df=0.8,
                                        #max_features=200000,
                                        ##min_df=0.2,
-                                       #stop_words='english',
+                                       stop_words='english',
                                        #use_idf=True,
                                        #ngram_range=(1,3),
                                        tokenizer=tokenize_html_content
@@ -265,12 +283,28 @@ if __name__ == '__main__':
     # k-means
 
     # use random_state to initialize the centers with a fixed seed (to get the same results/repeatability)
+    # without this my plot bellow would get the clusters in the same positions (correct and expected)
+    # but the colors would change each run, making things hard to track
     km_cluster = KMeans(n_clusters=total_clusters, random_state=1)
 
     km_cluster.fit(tfidf_matrix)
 
     clusters = km_cluster.labels_.tolist()
 
+
+
+    # cluster_labels
+    cluster_labels = {i:list() for i in range(total_clusters)}
+    for i, common_words in enumerate(document_common_words):
+
+        cluster_number = clusters[i]
+
+        if len(common_words) > 0:
+            cluster_labels[cluster_number].append(common_words[0][0])
+
+
+    root_logger.debug("cluster_labels:")
+    root_logger.debug(cluster_labels)
 
 
 
@@ -286,12 +320,33 @@ if __name__ == '__main__':
 
     grouped = frame['url'].groupby(frame['cluster'])
 
-
     root_logger.debug('Urls:')
     root_logger.debug(urls)
 
     root_logger.debug('Clusters:')
     root_logger.debug(clusters)
+
+
+
+
+
+
+
+
+    root_logger.debug("Show histogram")
+    n, bins, patches = plt.hist(clusters, total_clusters)
+
+    for c, p in zip(cluster_colors.values(), patches):
+        #print(c)
+        plt.setp(p, facecolor=c)
+
+    plt.legend(patches,[",".join(v[:3]) for _,v in cluster_labels.items()])
+    plt.show()
+
+
+    #root_logger.debug('bins:')
+    #root_logger.debug(bins)
+
 
 
 
@@ -309,9 +364,7 @@ if __name__ == '__main__':
 
     #visualize clusters
     
-    cluster_colors = {0: '#1b9e77', 1: '#d95f02', 2: '#7570b3', 3: '#e7298a', 4: '#7f869a',
-            5: '#d1af28', 6: '#335c4e', 7: '#d7005e', 8: '#f7c120', 9: '#783cd4'
-    }
+
 
     cluster_names = grouped.all()
 
@@ -324,28 +377,30 @@ if __name__ == '__main__':
     for name, group in groups:
 
         ax.plot(group.x, group.y, marker='o', linestyle='', ms=12,
-                label=name,
+                label=','.join(cluster_labels[name][:3]),
                 color=cluster_colors[name],
                 mec='none')
-        ax.set_aspect('auto')
-        ax.tick_params( \
-            axis='x',  # changes apply to the x-axis
-            which='both',  # both major and minor ticks are affected
-            bottom='off',  # ticks along the bottom edge are off
-            top='off',  # ticks along the top edge are off
-            labelbottom='off')
-        ax.tick_params( \
-            axis='y',  # changes apply to the y-axis
-            which='both',  # both major and minor ticks are affected
-            left='off',  # ticks along the bottom edge are off
-            top='off',  # ticks along the top edge are off
-            labelleft='off')
+
+    ax.set_aspect('auto')
+    ax.tick_params( \
+        axis='x',  # changes apply to the x-axis
+        which='both',  # both major and minor ticks are affected
+        bottom='off',  # ticks along the bottom edge are off
+        top='off',  # ticks along the top edge are off
+        labelbottom='off')
+    ax.tick_params( \
+        axis='y',  # changes apply to the y-axis
+        which='both',  # both major and minor ticks are affected
+        left='off',  # ticks along the bottom edge are off
+        top='off',  # ticks along the top edge are off
+        labelleft='off')
+
 
     ax.legend(numpoints=1)  # show legend with only 1 point
 
     # add label in x,y position with the label as the film title
     #for i in range(len(df)):
-    #   ax.text(df.ix[i]['x'], df.ix[i]['y'], df.ix[i]['url'], size=8)
+        #ax.text(df.ix[i]['x'], df.ix[i]['y'], df.ix[i]['url'], size=8)
 
 
     plt.show()  # show the plot
