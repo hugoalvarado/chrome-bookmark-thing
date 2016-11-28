@@ -213,7 +213,7 @@ if __name__ == '__main__':
     random.seed(1)
 
     total_clusters = 20
-    sample_size = 300
+    sample_size = 400
 
     cluster_colors = {
         0: '#1b9e77', 1: '#d95f02', 2: '#7570b3', 3: '#e7298a', 4: '#7f869a',
@@ -300,7 +300,7 @@ if __name__ == '__main__':
         cluster_number = clusters[i]
 
         if len(common_words) > 0:
-            cluster_labels[cluster_number].append(common_words[0][0])
+            cluster_labels[cluster_number].append(random.choice(common_words)[0])
 
 
     root_logger.debug("cluster_labels:")
@@ -340,7 +340,7 @@ if __name__ == '__main__':
         #print(c)
         plt.setp(p, facecolor=c)
 
-    plt.legend(patches,[",".join(v[:3]) for _,v in cluster_labels.items()])
+    plt.legend(patches,[",".join(v[:4]) for _,v in cluster_labels.items()])
     plt.show()
 
 
@@ -363,10 +363,6 @@ if __name__ == '__main__':
 
 
     #visualize clusters
-    
-
-
-    cluster_names = grouped.all()
 
     df = pd.DataFrame(dict(x=xs, y=ys, label=clusters, url=urls))
     groups = df.groupby('label')
@@ -377,7 +373,7 @@ if __name__ == '__main__':
     for name, group in groups:
 
         ax.plot(group.x, group.y, marker='o', linestyle='', ms=12,
-                label=','.join(cluster_labels[name][:3]),
+                label=','.join(cluster_labels[name][:4]),
                 color=cluster_colors[name],
                 mec='none')
 
@@ -404,5 +400,8 @@ if __name__ == '__main__':
 
 
     plt.show()  # show the plot
+
+    root_logger.debug('Urls by cluster:')
+    root_logger.debug(grouped.value_counts().index.values)
 
 
